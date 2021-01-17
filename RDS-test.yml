@@ -1,0 +1,388 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description:
+  'infrastructure for live coding'
+
+# ---------------
+# Parameters定義
+# ---------------
+Parameters:
+  VpcCIDR:
+    Description: IP range for VPC
+    Type: String
+    Default: 10.0.0.0/16
+  PublicSubnet1aCIDR:
+    Description: IP range for PublicSubnet1a
+    Type: String
+    Default: 10.0.0.0/24
+  PublicSubnet1cCIDR:
+    Description: IP range for PublicSubnet1c
+    Type: String
+    Default: 10.0.1.0/24
+  PrivateSubnet1aCIDR:
+    Description: IP range for PrivateSubnet1a
+    Type: String
+    Default: 10.0.2.0/24
+  PrivateSubnet1cCIDR:
+    Description: IP range for PrivateSubnet1c
+    Type: String
+    Default: 10.0.3.0/24
+  AllCIDR:
+    Description: IP range for all
+    Type: String
+    Default: 0.0.0.0/0
+
+
+# ---------------
+# Resources定義
+# ---------------
+Resources:
+  # VPC定義
+  VpcForLive:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsHostnames: true #VPC 内に起動されるインスタンスがDNSホスト名を取得するかどうかを示す
+      EnableDnsSupport: true #VPC に対して DNS 解決がサポートされているかどうかを示す
+      InstanceTenancy: default #VPC 内に起動されるインスタンスの許可されているテナンシー。
+      Tags:
+        - Key: Name
+          Value: VpcForLive 
+
+  # インターネットゲートウェイ定義
+  InternetGatewayForLive:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: InternetGatewayForLive
+
+  # インターネットゲートウェイ-VPC関連付け定義
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGatewayForLive #52行目と紐づいている
+      VpcId: !Ref VpcForLive #40行目と紐づいている
+
+  # パブリックサブネット定義
+  PublicSubnetForLive1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Sub "${AWS::Region}a"
+      CidrBlock: !Ref PublicSubnet1aCIDR #13行目と紐づいている
+      VpcId: !Ref VpcForLive #40行目と紐づいている
+      MapPublicIpOnLaunch: false #中西さんに聞く
+      Tags:
+        - Key: Name
+          Value: PublicSubnetForLive1a
+  PublicSubnetForLive1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Sub "${AWS::Region}c"
+      CidrBlock: !Ref PublicSubnet1cCIDR #17行目と紐づいている
+      VpcId: !Ref VpcForLive #40行目と紐づいている
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: PublicSubnetForLive1c
+
+  # プライベートサブネット定義
+  PrivateSubnetForLive1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Sub "${AWS::Region}a"
+      CidrBlock: !Ref PrivateSubnet1aCIDR #21行目と紐づいている
+      VpcId: !Ref VpcForLive #40行目と紐づいている
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: PrivateSubnetForLive1a
+  PrivateSubnetForLive1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Sub "${AWS::Region}c"
+      CidrBlock: !Ref PrivateSubnet1cCIDR #25行目と紐づいている
+      VpcId: !Ref VpcForLive #40行目と紐づいている
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: PrivateSubnetForLive1c
+
+  # セキュリティグループ定義
+  SecurityGroupForLive:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SecurityGroupForLive #必須
+      GroupName: SecurityGroupForLive
+      SecurityGroupIngress: #インバウンドルール
+        - CidrIp: !Ref AllCIDR #29行目と紐づいている
+          Description: inbound for ssh
+          FromPort: 22
+          IpProtocol: tcp
+          ToPort: 22
+        - CidrIp: !Ref AllCIDR #29行目と紐づいている
+          Description: inbound for http
+          FromPort: 80
+          IpProtocol: tcp
+          ToPort: 80
+      SecurityGroupEgress: #アウトバウンドルール
+        - CidrIp: !Ref AllCIDR #29行目と紐づいている
+          Description: outbound for all
+          FromPort: -1
+          IpProtocol: -1
+          ToPort: -1
+      VpcId: !Ref VpcForLive #40行目と紐づいている
+      Tags:
+        - Key: Name
+          Value: SecurityGroupForLive
+  RDSSecurityGroupForLive:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDSSecurityGroupForLive
+      GroupName: RDSSecurityGroupForLive
+      SecurityGroupIngress:
+        - CidrIp: !Ref AllCIDR #29行目と紐づいている
+          Description: inbound for mysql
+          FromPort: 3306
+          IpProtocol: tcp
+          ToPort: 3306
+      SecurityGroupEgress:
+        - CidrIp: !Ref AllCIDR #29行目と紐づいている
+          Description: outbound for all
+          FromPort: -1 #-1 の値は、すべての ICMP/ICMPv6 タイプを示します。
+          IpProtocol: -1
+          ToPort: -1
+      VpcId: !Ref VpcForLive #40行目と紐づいている
+      Tags:
+        - Key: Name
+          Value: RDSSecurityGroupForLive
+
+  # ルートテーブル定義
+  PublicRouteTableForLive:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VpcForLive #40行目と紐づいている
+      Tags:
+        - Key: Name
+          Value: PublicRouteTableForLive
+  DefaultPublicRouteTableForLive:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTableForLive
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGatewayForLive
+  PublicSubnet1RouteTableAssociationForLive:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTableForLive
+      SubnetId: !Ref PublicSubnetForLive1a
+  PublicSubnet2RouteTableAssociationForLive:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTableForLive
+      SubnetId: !Ref PublicSubnetForLive1c
+
+  # EIP定義
+  EIPForLive:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: EIPForLive
+
+  #EIP-EC2関連定義
+  EIPToEC2ForLive:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      EIP: !Ref EIPForLive #192行目と紐づいている
+      InstanceId: !Ref EC2ForLive1a #202行目と紐づいている
+
+  # EC2インスタンス定義
+  EC2ForLive1a:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: false
+      ImageId: ami-01748a72bed07727c
+      InstanceInitiatedShutdownBehavior: stop
+      InstanceType: t2.micro
+      KeyName: meikou #raisetech-yata-test
+      Monitoring: false
+      # NetworkInterfaces:
+      #   - NetworkInterface
+      SecurityGroupIds:
+        - !Ref SecurityGroupForLive
+      SourceDestCheck: true
+      SubnetId: !Ref PublicSubnetForLive1a
+      Tags:
+        - Key: Name
+          Value: EC2ForLive1a
+      Tenancy: default
+      # UserData: String
+      # Volumes:
+      #   - Device: /dev/xvda
+      #     VolumeId: #TBD
+  EC2ForLive1c:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: false
+      ImageId: ami-01748a72bed07727c
+      InstanceInitiatedShutdownBehavior: stop
+      InstanceType: t2.micro
+      KeyName: meikou #raisetech-yata-test 
+      Monitoring: false
+      # NetworkInterfaces:
+      #   - NetworkInterface
+      SecurityGroupIds:
+        - !Ref SecurityGroupForLive
+      SourceDestCheck: true
+      SubnetId: !Ref PublicSubnetForLive1c
+      Tags:
+        - Key: Name
+          Value: EC2ForLive1c
+      Tenancy: default
+ # RDS定義
+  RDSForLive:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: 20
+      AllowMajorVersionUpgrade: true
+      AutoMinorVersionUpgrade: true
+      AvailabilityZone: !Sub ${AWS::Region}a
+      DBInstanceClass: db.t2.micro
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroupForLive
+      DBSubnetGroupName: !Ref RDSSubnetGroupForLive
+      DeleteAutomatedBackups: false
+      DeletionProtection: false
+      EnableIAMDatabaseAuthentication: false
+      # EnablePerformanceInsights: true
+      # PerformanceInsightsRetentionPeriod: 7
+      Engine: MySQL
+      EngineVersion: 8.0.21
+      MasterUsername: root
+      MasterUserPassword: rootpass
+      MonitoringInterval: 0
+      MultiAZ: false
+      Port: 3306
+      PubliclyAccessible: false
+      StorageEncrypted: false
+      StorageType: standard
+      Tags:
+        - Key: Name
+          Value: RDSForLive
+      UseDefaultProcessorFeatures: true
+
+  # RDSサブネットグループ定義
+  RDSSubnetGroupForLive:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: subnet group for rds
+      DBSubnetGroupName: RDSSubnetGroupForLive
+      SubnetIds:
+        - !Ref PrivateSubnetForLive1a
+        - !Ref PrivateSubnetForLive1c
+      Tags:
+        - Key: Name
+          Value: RDSSubnetGroupForLive
+  #ALB定義
+  ElasticLoadBalancingV2LoadBalancer:
+        Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+        Properties:
+            Name: "RaiseTech-alb"
+            Scheme: "internet-facing"
+            Type: "application"
+            Subnets: 
+              - !Ref PublicSubnetForLive1a
+              - !Ref PublicSubnetForLive1c
+            SecurityGroups: 
+              - !Ref SecurityGroupForLive
+            IpAddressType: "ipv4"
+            LoadBalancerAttributes: 
+              - 
+                Key: "access_logs.s3.enabled"
+                Value: "false"
+              - 
+                Key: "idle_timeout.timeout_seconds"
+                Value: "60"
+              - 
+                Key: "deletion_protection.enabled"
+                Value: "false"
+              - 
+                Key: "routing.http2.enabled"
+                Value: "true"
+              - 
+                Key: "routing.http.drop_invalid_header_fields.enabled"
+                Value: "false"
+              - 
+                Key: "routing.http.desync_mitigation_mode"
+                Value: "defensive"
+              - 
+                Key: "waf.fail_open.enabled"
+                Value: "false"
+  ElasticLoadBalancingV2Listener:
+        Type: "AWS::ElasticLoadBalancingV2::Listener"
+        Properties:
+            LoadBalancerArn: !Ref ElasticLoadBalancingV2LoadBalancer
+            Port: 80
+            Protocol: "HTTP"
+            DefaultActions: 
+              - Type: forward
+                TargetGroupArn: !Ref ALBTargetGroup
+  #ALBターゲットグループの指定
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: ALBTargetGroup
+      Port: 80
+      Protocol: HTTP
+      Targets:
+        - Id:
+            Ref: EC2ForLive1a
+          Port: 80
+        - Id:
+            Ref: EC2ForLive1c
+          Port: 80
+      VpcId: !Ref VpcForLive
+  #S3定義
+  SampleS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:  s3bucket-raisetech-koki #バケットネームには大文字を入れてはいけない
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: false #三列目
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: false #四列目
+      VersioningConfiguration:
+        Status: Enabled
+  #S3バケットポリシー定義
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: 
+        Ref: "SampleS3Bucket"
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Action: 
+              - "s3:GetObject"
+            Effect: "Allow"
+            Resource: 
+              Fn::Join: 
+                - ""
+                - 
+                  - "arn:aws:s3:::"
+                  - 
+                    Ref: "SampleS3Bucket"
+                  - "/*"
+            Principal: "*" 
+              #AWS:
+                #Fn::Join:
+                  #- ""
+                  #- 
+                   # - "arn:aws:iam::"
+                    #- Ref: "AWS::AccountId"
+                    #- "/*"
